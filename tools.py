@@ -21,6 +21,31 @@ TOOL_SCHEMAS = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "capture_packets",
+            "description": "Capture network packets using tcpdump on a specified interface. Use this to see actual packets arriving/leaving on physical interfaces or tap devices. Useful for verifying if packets are reaching the expected interface and to extract packet details (IPs, MACs, protocols). The capture will stop after collecting the specified number of packets or timeout.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "interface": {
+                        "type": "string",
+                        "description": "Network interface to capture on (e.g., 'eth0', 'br-int', 'tap12345678')"
+                    },
+                    "filter": {
+                        "type": "string",
+                        "description": "BPF filter expression to capture specific traffic (e.g., 'icmp', 'host 10.0.0.48', 'tcp port 80'). Leave empty to capture all traffic."
+                    },
+                    "count": {
+                        "type": "integer",
+                        "description": "Maximum number of packets to capture (default: 10, max: 100)"
+                    }
+                },
+                "required": ["interface"]
+            }
+        }
     }
 ]
 
@@ -104,7 +129,7 @@ def _execute_ovn_logical_topology():
     Returns:
         str: Command output or error message
     """
-    cmd = ["ovn-nbctl", "show"]
+    cmd = ["sudo", "ovn-nbctl", "show"]
     print(f"--- [Tool] Running command: {' '.join(cmd)} ---")
 
     try:
@@ -112,12 +137,23 @@ def _execute_ovn_logical_topology():
             cmd,
             capture_output=True,
             text=True,
-            check=True,
+            check=False,  # Don't raise on non-zero exit
             timeout=10
         )
-        return result.stdout or "Command executed successfully (no output)."
-    except subprocess.CalledProcessError as e:
-        return f"Error: {e.stderr}"
+
+        # Debug output
+        print(f"--- [Tool] Exit code: {result.returncode} ---")
+        if result.stderr:
+            print(f"--- [Tool] STDERR: {result.stderr[:200]} ---")
+
+        # Return stdout if available, otherwise return error info
+        if result.stdout:
+            return result.stdout
+        elif result.stderr:
+            return f"Error: {result.stderr}"
+        else:
+            return "Command executed but produced no output."
+
     except subprocess.TimeoutExpired:
         return "Error: Command timed out."
     except Exception as e:
