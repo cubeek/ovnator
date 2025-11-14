@@ -19,7 +19,8 @@ OVNator is an intelligent agent that helps diagnose network connectivity problem
 1. **`get_ovn_logical_topology`** - Displays OVN logical switches, routers, ports, and NAT rules
 2. **`get_ovs_topology`** - Shows OVS bridges, physical interfaces, and tap devices
 3. **`get_ovs_ports`** - Lists detailed interface information (MACs, types, status)
-4. **`capture_packets`** - Captures packets on specified interfaces with BPF filters
+4. **`dump_ovs_flows`** - Dumps OpenFlow rules from an OVS bridge (essential for debugging packet processing)
+5. **`capture_packets`** - Captures packets on specified interfaces with BPF filters
 
 ### Planned Tools
 
@@ -75,10 +76,12 @@ python3 agent.py
 - "Do I have any routers?"
 - "Show me the OVS topology"
 - "List all tap devices on br-int"
+- "Show me the OpenFlow flows for br-int"
 
 **Troubleshooting:**
 - "Find the tap device for VM with IP 10.0.0.48"
 - "Capture 5 ICMP packets on tap6335a75c-5c"
+- "Dump the flows on br-int and explain the forwarding rules"
 - "Why can't the VM at 10.0.0.48 reach 172.24.5.1?"
 
 ## Architecture

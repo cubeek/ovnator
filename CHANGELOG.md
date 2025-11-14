@@ -1,6 +1,31 @@
 # Changelog
 
-## Tool Registry Pattern (Latest)
+## New Tool: dump_ovs_flows (Latest)
+
+### Features Added
+
+**OpenFlow Flow Inspection**
+- Added `dump_ovs_flows` tool to dump OpenFlow rules from OVS bridges
+- Command: `ovs-ofctl dump-flows <bridge>`
+- Essential for understanding packet processing and debugging drops
+- Shows flow tables, match criteria, actions, and statistics
+
+**Usage:**
+```python
+# Ask the agent:
+"Show me the OpenFlow flows for br-int"
+"Dump flows on br-ex bridge"
+```
+
+**Implementation:**
+- Schema defined in `TOOL_SCHEMAS`
+- Implementation in `_execute_dump_ovs_flows()`
+- Wrapper in `_call_dump_ovs_flows()`
+- Registered in `TOOL_REGISTRY`
+
+**Registry Count:** Now 5 tools total
+
+## Tool Registry Pattern
 
 ### Architecture Improvements
 

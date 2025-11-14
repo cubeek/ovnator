@@ -64,6 +64,23 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "dump_ovs_flows",
+            "description": "Dump OpenFlow flows from an OVS bridge using 'ovs-ofctl dump-flows'. This shows the actual flow rules that determine packet forwarding behavior. Use this to verify what flows are installed on a bridge and see if packets match expected rules. Essential for debugging packet drops or incorrect forwarding.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "bridge": {
+                        "type": "string",
+                        "description": "OVS bridge name to dump flows from (e.g., 'br-int', 'br-ex')"
+                    }
+                },
+                "required": ["bridge"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "capture_packets",
             "description": "Capture network packets using tcpdump on a specified interface. Use this to see actual packets arriving/leaving on physical interfaces or tap devices. Useful for verifying if packets are reaching the expected interface and to extract packet details (IPs, MACs, protocols). The capture will stop after collecting the specified number of packets or timeout.",
             "parameters": {
@@ -251,6 +268,20 @@ def _execute_ovs_ports() -> str:
     return _run_command(cmd)
 
 
+def _execute_dump_ovs_flows(bridge: str) -> str:
+    """
+    Execute ovs-ofctl dump-flows to get OpenFlow flows from a bridge.
+
+    Args:
+        bridge: OVS bridge name
+
+    Returns:
+        Flow dump output or error message
+    """
+    cmd = ["sudo", "ovs-ofctl", "dump-flows", bridge]
+    return _run_command(cmd)
+
+
 def _execute_capture_packets(interface: str, filter_expr: str = "", count: int = DEFAULT_PACKET_COUNT) -> str:
     """
     Execute tcpdump to capture packets on an interface.
@@ -299,6 +330,12 @@ def _call_ovs_ports(args: Dict[str, Any]) -> str:
     return _execute_ovs_ports()
 
 
+def _call_dump_ovs_flows(args: Dict[str, Any]) -> str:
+    """Wrapper for dump_ovs_flows."""
+    bridge = args.get("bridge")
+    return _execute_dump_ovs_flows(bridge)
+
+
 def _call_capture_packets(args: Dict[str, Any]) -> str:
     """Wrapper for capture_packets."""
     interface = args.get("interface")
@@ -312,6 +349,7 @@ TOOL_REGISTRY = {
     "get_ovn_logical_topology": _call_ovn_logical_topology,
     "get_ovs_topology": _call_ovs_topology,
     "get_ovs_ports": _call_ovs_ports,
+    "dump_ovs_flows": _call_dump_ovs_flows,
     "capture_packets": _call_capture_packets,
 }
 
