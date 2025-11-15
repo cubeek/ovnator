@@ -2,6 +2,8 @@
 
 An AI-powered troubleshooting assistant for OVN (Open Virtual Network) and OpenStack Neutron connectivity issues.
 
+![OVNator](ovnator.jpg)
+
 ## Overview
 
 OVNator is an intelligent agent that helps diagnose network connectivity problems in OpenStack Neutron environments using OVN. It leverages LLM reasoning to systematically investigate issues by:
