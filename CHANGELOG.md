@@ -1,6 +1,70 @@
 # Changelog
 
-## New Tool: dump_ovs_flows (Latest)
+## Log Search Tool (Latest)
+
+### Features Added
+
+**OVN Controller Log Analysis**
+- Added `search_ovn_logs` tool to search ovn-controller logs for errors, warnings, and specific patterns
+- Supports multiple log locations: `/var/log/ovn/ovn-controller.log`, systemd journal fallback
+- Understands OVN log format with ERR, WARN, INFO tags
+
+**Key Capabilities:**
+- Search for errors: `search_ovn_logs("ERR")`
+- Search for warnings: `search_ovn_logs("WARN")`
+- Combined search: `search_ovn_logs("ERR|WARN")`
+- Search for specific IPs/MACs/ports in logs
+- Configurable search window (default: 100 lines, max: 1000)
+
+**Usage Examples:**
+```
+"Search for errors in OVN logs"
+"Check if there are warnings about port 10.0.0.48"
+"Find all ERR or WARN messages in last 500 lines"
+```
+
+**Integration:**
+- Updated troubleshooting methodology to include log checking (Step 7)
+- Helps correlate errors with packet drops and connectivity issues
+- Essential for finding flow installation failures and ACL misconfigurations
+
+**Registry Count:** Now 8 tools total
+
+## Packet Tracing Tools
+
+### Major Features Added
+
+**Complete Packet Tracing Capability**
+Added two critical tracing tools that enable end-to-end packet path analysis:
+
+**1. `trace_ovs_flow` - Physical Layer Tracing**
+- Command: `ovs-appctl ofproto/trace <bridge> <flow>`
+- Simulates packet processing through OVS OpenFlow tables
+- Shows which flows match, what actions are taken
+- Identifies drops, rewrites, and forwarding decisions at the physical layer
+- Example: `trace_ovs_flow br-int "in_port=1,icmp,nw_src=10.0.0.48,nw_dst=10.0.0.1"`
+
+**2. `trace_ovn_packet` - Logical Layer Tracing**
+- Command: `ovn-trace <datapath> <packet-spec>`
+- Simulates packet processing through OVN logical topology
+- Shows ACL evaluations, routing decisions, logical forwarding
+- Identifies which logical ACL or router rule causes drops
+- Example: `trace_ovn_packet neutron-xxx 'inport=="port-uuid" && ip4.src==10.0.0.48 && icmp4'`
+
+**Enhanced Troubleshooting Methodology**
+- Updated agent system prompt with comprehensive 7-step troubleshooting workflow
+- Includes detailed guidance on extracting packet info and building trace specifications
+- Emphasizes two-level debugging (physical AND logical)
+
+**Usage Pattern:**
+1. Capture packet with `capture_packets` to get MAC/IP details
+2. Trace physical path with `trace_ovs_flow` using captured packet details
+3. Trace logical path with `trace_ovn_packet` using logical port info
+4. Compare both traces to find discrepancies
+
+**Registry Count:** Now 7 tools total
+
+## New Tool: dump_ovs_flows
 
 ### Features Added
 

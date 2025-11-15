@@ -1,0 +1,90 @@
+=================================================================
+DEBUG IMPROVEMENTS FOR "Unknown LLM action: None" ISSUE
+=================================================================
+
+PROBLEM:
+--------
+User reported: LLM returned "None" as action after calling first tool
+This happens when small models (Llama 3.1 8B) get overwhelmed by large
+tool outputs (OVN topology can be 1000+ lines)
+
+ROOT CAUSE:
+-----------
+1. Large topology output overwhelms small model context
+2. Model forgets to include "action" field in JSON response
+3. JSON parses successfully but missing required field
+
+FIXES IMPLEMENTED:
+------------------
+
+1. ENHANCED ERROR REPORTING (agent.py)
+   - Show JSON parse errors with details
+   - Show LLM response keys when action is None
+   - Display first 500 chars of malformed responses
+   - Added DEBUG_MODE flag (enabled by default)
+
+2. BETTER RECOVERY (agent.py)
+   - Changed from ending conversation to retry with guidance
+   - Added explicit reminder about action field requirement
+   - Continues loop instead of breaking on unknown action
+
+3. DEBUG OUTPUT (agent.py)
+   - Shows LLM response length
+   - Shows first 200 chars of response
+   - Helps identify if model is returning valid but incomplete JSON
+
+4. IMPROVED SYSTEM PROMPT (agent.py)
+   - Added "CRITICAL" section emphasizing action field requirement
+   - More explicit about JSON format requirements
+   - Repeated multiple times in different sections
+
+5. DOCUMENTATION (TROUBLESHOOTING.md)
+   - Comprehensive troubleshooting guide
+   - Model recommendations (8B vs 70B vs Gemini)
+   - Solutions for common issues
+   - Best practices for small vs large models
+
+6. README UPDATES
+   - Added quick troubleshooting section
+   - Link to detailed TROUBLESHOOTING.md
+   - Model selection guidance
+
+NEXT STEPS FOR USER:
+-------------------
+
+OPTION 1: Use Larger Model (RECOMMENDED)
+   Change MODEL_NAME to:
+   - "ollama/llama3.1:70b" (much better)
+   - Gemini Pro/Flash via API
+   - Claude 3.5 Sonnet
+   - GPT-4 Turbo
+
+OPTION 2: Debug Current Issue
+   With DEBUG_MODE=True, run again and check:
+   - What keys does LLM response have?
+   - Is response very short or very long?
+   - Does it include reasoning but no action?
+
+OPTION 3: Simplify Query
+   Instead of: "Why can't I ping X?"
+   Try: Step-by-step
+   1. "Show logical topology"
+   2. "Find port for IP X"
+   3. "Check logs for errors about X"
+
+FILES CHANGED:
+--------------
+- agent.py: Better error handling, DEBUG_MODE, recovery logic
+- TROUBLESHOOTING.md: New comprehensive guide
+- README.md: Quick troubleshooting section
+- DEBUG_IMPROVEMENTS.txt: This file
+
+TESTING:
+--------
+Run the agent with DEBUG_MODE=True and observe:
+- [DEBUG] LLM Response Length
+- [DEBUG] LLM Response Start
+- [Agent] LLM Response Keys (if error occurs)
+- [Agent] LLM Response (full JSON if error)
+
+This will show exactly what the LLM returned and why it failed.

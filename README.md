@@ -19,15 +19,17 @@ OVNator is an intelligent agent that helps diagnose network connectivity problem
 1. **`get_ovn_logical_topology`** - Displays OVN logical switches, routers, ports, and NAT rules
 2. **`get_ovs_topology`** - Shows OVS bridges, physical interfaces, and tap devices
 3. **`get_ovs_ports`** - Lists detailed interface information (MACs, types, status)
-4. **`dump_ovs_flows`** - Dumps OpenFlow rules from an OVS bridge (essential for debugging packet processing)
-5. **`capture_packets`** - Captures packets on specified interfaces with BPF filters
+4. **`dump_ovs_flows`** - Dumps OpenFlow rules from an OVS bridge
+5. **`trace_ovs_flow`** - Traces packet processing through OVS OpenFlow tables (physical layer)
+6. **`trace_ovn_packet`** - Traces packet processing through OVN logical topology (logical layer)
+7. **`search_ovn_logs`** - Searches OVN controller logs for errors, warnings, or specific patterns
+8. **`capture_packets`** - Captures packets on specified interfaces with BPF filters
 
 ### Planned Tools
 
-- `ovn-trace` - Simulate logical packet paths
-- `ovs-appctl ofproto/trace` - Trace OpenFlow rules
 - ACL and security group inspection
 - Port binding queries
+- Connection tracking (conntrack) inspection
 
 ## Prerequisites
 
@@ -72,17 +74,37 @@ python3 agent.py
 
 ### Example Queries
 
-**Informational:**
+**Simple Informational:**
 - "Do I have any routers?"
 - "Show me the OVS topology"
 - "List all tap devices on br-int"
 - "Show me the OpenFlow flows for br-int"
 
-**Troubleshooting:**
+**Smart IP Diagnostics (Recommended):**
+Just provide the IP - the agent will automatically perform complete diagnostics:
+- "Troubleshoot 10.0.0.48"
+- "Why can't I reach 172.24.5.38?"
+- "Diagnose connectivity for 10.0.0.1"
+- "What's wrong with 192.168.1.100?"
+
+The agent will automatically:
+1. Find the logical port for that IP
+2. Identify the tap device
+3. Capture packets
+4. Trace through OVS and OVN
+5. Check logs for errors
+6. Provide root cause analysis
+
+**Manual Step-by-Step (If needed):**
 - "Find the tap device for VM with IP 10.0.0.48"
 - "Capture 5 ICMP packets on tap6335a75c-5c"
-- "Dump the flows on br-int and explain the forwarding rules"
-- "Why can't the VM at 10.0.0.48 reach 172.24.5.1?"
+- "Trace an ICMP packet from 10.0.0.48 to 10.0.0.1 through both OVS and OVN"
+- "Search for errors in the OVN controller logs"
+
+**Advanced Workflows:**
+- "Capture a packet, extract its details, and trace it through the entire stack"
+- "Compare physical and logical packet paths for ICMP between two VMs"
+- "Find all ERR or WARN messages in the last 500 log lines"
 
 ## Architecture
 
@@ -157,7 +179,22 @@ The agent runs commands with `sudo`. Ensure the user running the agent has passw
 
 ## Troubleshooting
 
-### Connection Issues
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed troubleshooting guide including:
+- Fixing "Unknown LLM action: None" errors
+- Handling JSON parse errors
+- Model selection guidance
+- Performance optimization
+
+### Common Issues
+
+#### "Unknown LLM action: None"
+**Cause:** Small model (Llama 3.1 8B) overwhelmed by large tool outputs
+
+**Solution:** Use a larger model like Gemini Pro, Claude, or Llama 3.1 70B
+
+**Quick fix:** Enable DEBUG_MODE in agent.py to see what the LLM actually returned
+
+#### Connection Issues
 
 **Problem**: Cannot connect to LlamaStack server
 ```

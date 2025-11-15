@@ -19,8 +19,19 @@ MIN_PACKET_COUNT = 1
 MAX_PACKET_COUNT = 100
 DEFAULT_PACKET_COUNT = 10
 
+# Log search limits
+DEFAULT_LOG_LINES = 100
+MAX_LOG_LINES = 1000
+
 # Debug output limits
 MAX_STDERR_DISPLAY = 200
+
+# OVN log file locations (try in order)
+OVN_CONTROLLER_LOG_PATHS = [
+    "/var/log/openvswitch/ovn-controller.log",
+    "/var/log/ovn/ovn-controller.log",
+    "/var/log/syslog",  # Fallback for systemd
+]
 
 # --- Tool Schema Definitions ---
 
@@ -75,6 +86,73 @@ TOOL_SCHEMAS = [
                     }
                 },
                 "required": ["bridge"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "trace_ovs_flow",
+            "description": "Trace a packet through OVS OpenFlow tables using 'ovs-appctl ofproto/trace'. This simulates packet processing through the physical datapath, showing which flows match and what actions are taken. Use this to debug why packets are dropped or forwarded incorrectly at the OVS level. The flow parameter should specify packet characteristics extracted from captured traffic.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "bridge": {
+                        "type": "string",
+                        "description": "OVS bridge name to trace on (e.g., 'br-int')"
+                    },
+                    "flow": {
+                        "type": "string",
+                        "description": "Flow specification describing the packet to trace. Format: 'in_port=X,dl_src=MAC,dl_dst=MAC,dl_type=0x0800,nw_src=IP,nw_dst=IP,nw_proto=1' (for ICMP) or similar. Extract these values from captured packets."
+                    }
+                },
+                "required": ["bridge", "flow"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "trace_ovn_packet",
+            "description": "Trace a packet through OVN logical topology using 'ovn-trace'. This simulates packet processing through the logical network (switches, routers, ACLs) and shows the logical path and any drops. Essential for finding which logical ACL or router rule is blocking traffic. The datapath is the logical switch/router name, and inport is the logical port name (both visible in 'ovn-nbctl show').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "datapath": {
+                        "type": "string",
+                        "description": "Logical datapath (switch or router name/UUID) from 'ovn-nbctl show'. Example: 'neutron-20e32985-7621-419b-b602-de90bae0ef73'"
+                    },
+                    "inport": {
+                        "type": "string",
+                        "description": "Ingress logical port name/UUID from 'ovn-nbctl show'. Example: '6335a75c-5c5c-4c88-940f-dc8acd018396'"
+                    },
+                    "packet": {
+                        "type": "string",
+                        "description": "Packet specification in OVN format. Example: 'inport==\"PORT_NAME\" && eth.src==MAC && eth.dst==MAC && ip4.src==IP && ip4.dst==IP && ip.ttl==64 && icmp4' for ICMP packets. Adapt based on protocol."
+                    }
+                },
+                "required": ["datapath", "inport", "packet"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_ovn_logs",
+            "description": "Search OVN controller logs for errors, warnings, or specific patterns. OVN logs use specific tags: 'ERR' for errors, 'WARN' for warnings, 'INFO' for informational messages. The ovn-controller runs on compute nodes and its logs contain critical information about packet processing issues, flow installation failures, and connectivity problems. Use this to find error messages that explain why traffic is failing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Pattern to search for in logs. Common patterns: 'ERR' (errors), 'WARN' (warnings), 'drop', 'failed', 'ERR|WARN' (errors or warnings), or specific port/IP/MAC addresses. Case-insensitive grep pattern."
+                    },
+                    "lines": {
+                        "type": "integer",
+                        "description": "Number of recent log lines to search (default: 100, max: 1000). Use larger values for historical issues."
+                    }
+                },
+                "required": ["pattern"]
             }
         }
     },
@@ -222,13 +300,22 @@ def validate_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Tuple[bool,
         if param not in valid_params:
             return False, f"Unexpected parameter: {param}"
 
-    # Type checking
+    # Type checking with auto-conversion for common LLM mistakes
     for param_name, param_value in tool_args.items():
         expected_type = tool_schema["parameters"]["properties"][param_name].get("type")
-        if expected_type == "string" and not isinstance(param_value, str):
-            return False, f"Parameter '{param_name}' must be a string"
-        elif expected_type == "integer" and not isinstance(param_value, int):
-            return False, f"Parameter '{param_name}' must be an integer"
+
+        if expected_type == "string":
+            if not isinstance(param_value, str):
+                # Try to convert to string
+                tool_args[param_name] = str(param_value)
+
+        elif expected_type == "integer":
+            if not isinstance(param_value, int):
+                # Try to convert string to int (common LLM mistake)
+                try:
+                    tool_args[param_name] = int(param_value)
+                except (ValueError, TypeError):
+                    return False, f"Parameter '{param_name}' must be an integer (got: {param_value})"
 
     return True, None
 
@@ -280,6 +367,113 @@ def _execute_dump_ovs_flows(bridge: str) -> str:
     """
     cmd = ["sudo", "ovs-ofctl", "dump-flows", bridge]
     return _run_command(cmd)
+
+
+def _execute_trace_ovs_flow(bridge: str, flow: str) -> str:
+    """
+    Execute ovs-appctl ofproto/trace to trace a packet through OVS.
+
+    Args:
+        bridge: OVS bridge name
+        flow: Flow specification (e.g., "in_port=1,icmp,nw_src=10.0.0.1,nw_dst=10.0.0.2")
+
+    Returns:
+        Trace output or error message
+    """
+    cmd = ["sudo", "ovs-appctl", "ofproto/trace", bridge, flow]
+    return _run_command(cmd)
+
+
+def _execute_trace_ovn_packet(datapath: str, inport: str, packet: str) -> str:
+    """
+    Execute ovn-trace to trace a packet through OVN logical topology.
+
+    Args:
+        datapath: Logical datapath (switch/router name or UUID)
+        inport: Ingress logical port name or UUID
+        packet: Packet specification in OVN match format
+
+    Returns:
+        Trace output or error message
+    """
+    # Build ovn-trace command
+    # --minimal: Show minimal output without full details
+    # Use full packet specification format
+    cmd = ["sudo", "ovn-trace", "--minimal", datapath, packet]
+    return _run_command(cmd)
+
+
+def _execute_search_ovn_logs(pattern: str, lines: int = DEFAULT_LOG_LINES) -> str:
+    """
+    Search OVN controller logs for specific patterns.
+
+    Args:
+        pattern: Pattern to search for (grep syntax)
+        lines: Number of recent log lines to search
+
+    Returns:
+        Matching log lines or error message
+    """
+    import os
+
+    # Sanitize and limit lines to reasonable range
+    lines = max(1, min(lines, MAX_LOG_LINES))
+
+    # Find the log file (try different locations)
+    log_file = None
+    for path in OVN_CONTROLLER_LOG_PATHS:
+        if os.path.exists(path):
+            log_file = path
+            break
+
+    if not log_file:
+        # Try journalctl as fallback
+        cmd = ["sudo", "journalctl", "-u", "ovn-controller", "-n", str(lines), "--no-pager"]
+        print(f"--- [Tool] Log file not found, using journalctl ---")
+        result = _run_command(cmd)
+
+        # Now grep the result for the pattern
+        if result and not result.startswith("Error:"):
+            matching_lines = []
+            for line in result.split('\n'):
+                if pattern.lower() in line.lower():
+                    matching_lines.append(line)
+
+            if matching_lines:
+                return '\n'.join(matching_lines)
+            else:
+                return f"No matches found for pattern '{pattern}' in recent {lines} log entries."
+        return result
+
+    # Use tail + grep on log file
+    # tail -n <lines> <file> | grep -i <pattern>
+    print(f"--- [Tool] Searching {log_file} for '{pattern}' ---")
+    cmd = f"sudo tail -n {lines} {log_file} | grep -i '{pattern}'"
+
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,  # Need shell for pipe
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=TIMEOUT_STANDARD
+        )
+
+        print(f"--- [Tool] Exit code: {result.returncode} ---")
+
+        if result.stdout:
+            return result.stdout
+        elif result.returncode == 1:
+            # grep returns 1 when no matches found
+            return f"No matches found for pattern '{pattern}' in recent {lines} log lines from {log_file}."
+        else:
+            return f"Error searching logs: {result.stderr or 'Unknown error'}"
+
+    except subprocess.TimeoutExpired:
+        return f"Error: Log search timed out after {TIMEOUT_STANDARD} seconds."
+    except Exception as e:
+        return f"Error: {type(e).__name__}: {e}"
 
 
 def _execute_capture_packets(interface: str, filter_expr: str = "", count: int = DEFAULT_PACKET_COUNT) -> str:
@@ -336,6 +530,28 @@ def _call_dump_ovs_flows(args: Dict[str, Any]) -> str:
     return _execute_dump_ovs_flows(bridge)
 
 
+def _call_trace_ovs_flow(args: Dict[str, Any]) -> str:
+    """Wrapper for trace_ovs_flow."""
+    bridge = args.get("bridge")
+    flow = args.get("flow")
+    return _execute_trace_ovs_flow(bridge, flow)
+
+
+def _call_trace_ovn_packet(args: Dict[str, Any]) -> str:
+    """Wrapper for trace_ovn_packet."""
+    datapath = args.get("datapath")
+    inport = args.get("inport")
+    packet = args.get("packet")
+    return _execute_trace_ovn_packet(datapath, inport, packet)
+
+
+def _call_search_ovn_logs(args: Dict[str, Any]) -> str:
+    """Wrapper for search_ovn_logs."""
+    pattern = args.get("pattern")
+    lines = args.get("lines", DEFAULT_LOG_LINES)
+    return _execute_search_ovn_logs(pattern, lines)
+
+
 def _call_capture_packets(args: Dict[str, Any]) -> str:
     """Wrapper for capture_packets."""
     interface = args.get("interface")
@@ -350,6 +566,9 @@ TOOL_REGISTRY = {
     "get_ovs_topology": _call_ovs_topology,
     "get_ovs_ports": _call_ovs_ports,
     "dump_ovs_flows": _call_dump_ovs_flows,
+    "trace_ovs_flow": _call_trace_ovs_flow,
+    "trace_ovn_packet": _call_trace_ovn_packet,
+    "search_ovn_logs": _call_search_ovn_logs,
     "capture_packets": _call_capture_packets,
 }
 
