@@ -108,7 +108,23 @@ DO NOT wait for user to ask for each step - execute the complete workflow automa
 * **br-int:** The main OVS integration bridge on the compute node. All VM tap devices connect here.
 * **Logical Topology:** Neutron networks map to OVN logical switches, routers map to logical routers.
 * **Port Bindings:** Map logical ports to physical compute nodes and interfaces.
-* **Tap Devices:** VMs connect via tap interfaces (e.g., tap12345678, tap6335a75c-5c) on br-int. The tap name is derived from the logical port UUID (first 11 chars).
+* **Tap Devices:** VMs connect via tap interfaces on br-int. Tap names are derived from logical port UUIDs (first 11 chars of UUID = tap device suffix).
+* **Localnet Ports:** Physical network connections in OVN. Each provider/external network has a "localnet" port that connects to an OVS bridge.
+
+**HOW TO USE ovn-trace CORRECTLY:**
+Determine the correct logical datapath and inport by analyzing packet flow:
+
+1. **Identify packet source** (from tcpdump):
+   - Physical NIC (enp*, eth*)? → External/provider traffic
+   - Geneve tunnel (genev_sys_*)? → Inter-node traffic
+   - Tap device (tap*)? → Local VM traffic
+
+2. **Map to logical ingress:**
+   - **Physical NIC:** Find bridge in OVS topology, then find logical switch with localnet port matching that bridge name
+   - **Geneve:** Find destination VM's logical port and switch in OVN topology
+   - **Tap device:** Match first 11 chars to logical port UUID in OVN topology
+
+3. **KEY:** datapath and inport = WHERE packets ENTER the logical topology, not destination
 
 **PACKET TRACING:**
 * **ovn-trace:** Simulates a packet's path through the *logical* topology (switches, routers, ACLs). Shows logical decisions and ACL evaluations. A failed trace will show exactly which ACL or router rule dropped the packet.

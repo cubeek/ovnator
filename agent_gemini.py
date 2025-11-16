@@ -60,8 +60,38 @@ NEVER guess interface names - always get topology first!
 * **br-int:** The main OVS integration bridge on the compute node. All VM tap devices connect here.
 * **Logical Topology:** Neutron networks map to OVN logical switches, routers map to logical routers.
 * **Port Bindings:** Map logical ports to physical compute nodes and interfaces.
-* **Tap Devices:** VMs connect via tap interfaces (e.g., tap12345678, tap6335a75c-5c) on br-int. The tap name is derived from the logical port UUID (first 11 chars).
+* **Tap Devices:** VMs connect via tap interfaces on br-int. Tap names are derived from logical port UUIDs (first 11 chars of UUID = tap device suffix).
+* **Localnet Ports:** Physical network connections in OVN. Each provider/external network has a "localnet" port that connects to an OVS bridge.
 * **Two-level debugging:** Always trace at BOTH levels - a packet might pass logical checks but fail at the physical level, or vice versa.
+
+**HOW TO USE ovn-trace CORRECTLY:**
+You must determine the correct logical datapath and inport by analyzing packet flow:
+
+**STEP 1: Identify packet source from tcpdump:**
+- Physical NIC (enp*, eth*, etc.)? → External/provider network traffic
+- Geneve tunnel (genev_sys_*)? → Inter-node traffic (from another compute)
+- Tap device (tap*)? → Local VM traffic
+- Bridge (br-*)? → Check which physical interfaces are attached
+
+**STEP 2: Map source to logical ingress point:**
+
+**A) From Physical NIC:**
+  1. In OVS topology: Find which bridge the NIC connects to
+  2. In OVN topology: Find logical switch with a "localnet" port whose name contains that bridge name
+  3. Use: datapath = that logical switch, inport = that localnet port name
+
+**B) From Geneve Tunnel:**
+  1. Traffic already traversed OVN on the source node
+  2. Find destination VM's IP in OVN topology to get its logical port and switch
+  3. Use: datapath = destination VM's logical switch, inport = destination VM's logical port
+
+**C) From VM Tap Device:**
+  1. Match tap device name to logical port UUID (first 11 chars)
+  2. Find that port's logical switch in OVN topology
+  3. Use: datapath = source VM's logical switch, inport = source VM's logical port
+
+**KEY PRINCIPLE:** datapath and inport represent WHERE packets ENTER the logical topology, not their destination.
+Always trace from the ingress point forward through the logical network.
 
 **TROUBLESHOOTING WORKFLOW:**
   1. Find the VM's IP in `ovn-nbctl show` to get its logical port UUID and switch
@@ -83,9 +113,9 @@ Traffic flow: Physical NIC → OVS/OVN Processing → Tap Device → VM
 - NOTE: Do NOT capture on OVS bridges (br-int, br-ex) - unicast traffic is not observable there
 
 **EXAMPLE: Checking for workload traffic**
-1. Get topology with `get_ovn_logical_topology` to find workload IPs (e.g., 10.0.0.48, 172.24.5.38)
-2. Capture with: interface="any", filter="host 10.0.0.48 or host 172.24.5.38"
-3. This shows ONLY workload traffic, filtering out control plane noise
+1. Get topology with `get_ovn_logical_topology` to find all workload IPs on this node
+2. Build tcpdump filter: interface="any", filter="host <IP1> or host <IP2> or host <IP3>"
+3. This shows ONLY workload traffic, filtering out control plane noise (OVN tunnels, APIs, etc.)
 """
 
 
