@@ -70,7 +70,15 @@ DO NOT wait for user to ask for each step - execute the complete workflow automa
 
 2.  **IDENTIFY:** Map the problem to specific components (VMs, IPs, ports, interfaces).
 
-3.  **CAPTURE:** Use `capture_packets` on relevant interfaces (tap devices, physical ports) to see actual traffic.
+3.  **CAPTURE TRAFFIC AT MULTIPLE LAYERS:** Check traffic at each layer to identify where packets are dropped:
+    - **Broad capture FIRST:** Use `capture_packets` with interface="any" filtered by workload IPs
+      * First get topology to identify all workload IPs on this node
+      * Build filter: "host IP1 or host IP2 or host IP3" to avoid control plane traffic
+      * Example: filter="host 10.0.0.48 or host 172.24.5.38"
+    - **Physical layer:** If traffic found, capture on specific physical NICs to verify ingress/egress
+    - **VM layer:** Capture on specific tap devices to see if traffic reaches the VM
+    - **Compare results:** If traffic appears on physical NICs but not tap devices, packets are being dropped in OVS/OVN
+    - **NOTE:** Do NOT capture on OVS bridges (br-int, br-ex) - unicast traffic is not observable there
     - Extract packet details: source/destination MAC addresses, IP addresses, protocol
     - Note the interface where the packet was seen
 

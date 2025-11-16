@@ -47,9 +47,26 @@ NEVER guess interface names - always get topology first!
 **TROUBLESHOOTING WORKFLOW:**
   1. Find the VM's IP in `ovn-nbctl show` to get its logical port UUID and switch
   2. Find the corresponding tap device (first 11 chars of UUID) in `ovs-vsctl show`
-  3. Capture packets on that tap device to extract MAC/IP details
-  4. Use extracted details to trace through both OVS (`trace_ovs_flow`) and OVN (`trace_ovn_packet`)
-  5. Compare traces to find where packet is dropped or incorrectly handled
+  3. **CHECK TRAFFIC AT MULTIPLE LAYERS** to identify where packets are dropped:
+     a. **Broad capture FIRST:** Capture on ALL interfaces (`-i any`) filtered by workload IP to see if traffic exists anywhere on the node
+     b. **Physical layer:** If traffic found, capture on specific physical NICs to verify ingress/egress
+     c. **VM layer:** Capture on specific tap devices to see if traffic reaches the VM
+  4. **Compare traffic:** If traffic appears on physical NICs but not on tap devices, packets are being dropped in OVS/OVN
+  5. Use extracted packet details to trace through both OVS (`trace_ovs_flow`) and OVN (`trace_ovn_packet`)
+  6. Analyze traces to find where packet is dropped or incorrectly handled
+
+**CRITICAL: When checking for traffic, start with `-i any` filtered by workload IPs!**
+Traffic flow: Physical NIC → OVS/OVN Processing → Tap Device → VM
+- When checking for general workload traffic, FIRST get topology to identify all workload IPs on this node
+- Build a tcpdump filter for workload IPs only: "host IP1 or host IP2 or host IP3" to avoid control plane traffic
+- Use `capture_packets` with interface="any" and the workload IP filter
+- If traffic appears on physical interfaces but NOT on tap devices, packets are being dropped in OVS/OVN
+- NOTE: Do NOT capture on OVS bridges (br-int, br-ex) - unicast traffic is not observable there
+
+**EXAMPLE: Checking for workload traffic**
+1. Get topology with `get_ovn_logical_topology` to find workload IPs (e.g., 10.0.0.48, 172.24.5.38)
+2. Capture with: interface="any", filter="host 10.0.0.48 or host 172.24.5.38"
+3. This shows ONLY workload traffic, filtering out control plane noise
 """
 
 

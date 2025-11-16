@@ -42,9 +42,7 @@ TOOL_SCHEMAS = [
             "name": "get_ovn_logical_topology",
             "description": "Get the OVN logical network topology using 'ovn-nbctl show'. This shows logical switches, logical routers, logical ports, and their relationships. Use this to understand the logical network structure before tracing packets.",
             "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
+                "type": "object"
             }
         }
     },
@@ -54,9 +52,7 @@ TOOL_SCHEMAS = [
             "name": "get_ovs_topology",
             "description": "Get the Open vSwitch topology using 'ovs-vsctl show'. This shows OVS bridges, ports, interfaces, and their connections. Use this to understand which physical interfaces are connected to which bridges and to discover tap devices for VMs.",
             "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
+                "type": "object"
             }
         }
     },
@@ -66,9 +62,7 @@ TOOL_SCHEMAS = [
             "name": "get_ovs_ports",
             "description": "List all OVS ports and their details using 'ovs-vsctl list interface'. This shows interface names, MAC addresses, types, and status. Use this to find specific interfaces like tap devices or physical ports.",
             "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
+                "type": "object"
             }
         }
     },
@@ -218,8 +212,14 @@ def _run_command(cmd: List[str], timeout: int = TIMEOUT_STANDARD,
 
         # Determine output based on command behavior
         if use_stderr_as_output:
-            # For commands that write to stderr by default (e.g., tcpdump)
-            output = result.stderr if result.stderr else result.stdout
+            # For commands like tcpdump that write to both stdout and stderr
+            # Combine both (packet details in stdout, summary in stderr)
+            parts = []
+            if result.stdout:
+                parts.append(result.stdout)
+            if result.stderr:
+                parts.append(result.stderr)
+            output = '\n'.join(parts) if parts else None
         else:
             # For normal commands that write to stdout
             output = result.stdout if result.stdout else None
@@ -288,34 +288,38 @@ def validate_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Tuple[bool,
     if not tool_schema:
         return False, f"Unknown tool: {tool_name}"
 
+    # Get properties (may not exist for parameter-less tools)
+    properties = tool_schema["parameters"].get("properties", {})
+
     # Check required parameters
     required_params = tool_schema["parameters"].get("required", [])
     for param in required_params:
         if param not in tool_args:
             return False, f"Missing required parameter: {param}"
 
-    # Check for unexpected parameters
-    valid_params = tool_schema["parameters"]["properties"].keys()
-    for param in tool_args.keys():
-        if param not in valid_params:
-            return False, f"Unexpected parameter: {param}"
+    # Check for unexpected parameters (only if properties are defined)
+    if properties:
+        valid_params = properties.keys()
+        for param in tool_args.keys():
+            if param not in valid_params:
+                return False, f"Unexpected parameter: {param}"
 
-    # Type checking with auto-conversion for common LLM mistakes
-    for param_name, param_value in tool_args.items():
-        expected_type = tool_schema["parameters"]["properties"][param_name].get("type")
+        # Type checking with auto-conversion for common LLM mistakes
+        for param_name, param_value in tool_args.items():
+            expected_type = properties[param_name].get("type")
 
-        if expected_type == "string":
-            if not isinstance(param_value, str):
-                # Try to convert to string
-                tool_args[param_name] = str(param_value)
+            if expected_type == "string":
+                if not isinstance(param_value, str):
+                    # Try to convert to string
+                    tool_args[param_name] = str(param_value)
 
-        elif expected_type == "integer":
-            if not isinstance(param_value, int):
-                # Try to convert string to int (common LLM mistake)
-                try:
-                    tool_args[param_name] = int(param_value)
-                except (ValueError, TypeError):
-                    return False, f"Parameter '{param_name}' must be an integer (got: {param_value})"
+            elif expected_type == "integer":
+                if not isinstance(param_value, int):
+                    # Try to convert string to int (common LLM mistake)
+                    try:
+                        tool_args[param_name] = int(param_value)
+                    except (ValueError, TypeError):
+                        return False, f"Parameter '{param_name}' must be an integer (got: {param_value})"
 
     return True, None
 
@@ -492,15 +496,18 @@ def _execute_capture_packets(interface: str, filter_expr: str = "", count: int =
     count = max(MIN_PACKET_COUNT, min(count, MAX_PACKET_COUNT))
 
     # Build tcpdump command
+    # -l: Line buffered output (important for subprocess capture)
     # -n: Don't resolve hostnames
     # -v: Verbose output
     # -e: Print link-level header
     # -c: Capture count
-    cmd = ["sudo", "tcpdump", "-n", "-v", "-e", "-c", str(count), "-i", interface]
+    cmd = ["sudo", "tcpdump", "-l", "-n", "-v", "-e", "-c", str(count), "-i", interface]
 
-    # Add filter if provided
+    # Add filter if provided - split into separate args like a shell would
     if filter_expr:
-        cmd.append(filter_expr)
+        # Split filter expression into separate arguments
+        # This ensures proper parsing by tcpdump (e.g., "host 10.0.0.1 and icmp" -> ["host", "10.0.0.1", "and", "icmp"])
+        cmd.extend(filter_expr.split())
 
     # tcpdump writes output to stderr by default
     return _run_command(cmd, timeout=TIMEOUT_PACKET_CAPTURE, use_stderr_as_output=True)
